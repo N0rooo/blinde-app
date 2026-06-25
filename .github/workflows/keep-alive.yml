@@ -1,0 +1,39 @@
+name: keep-supabase-alive
+
+# Empêche le projet Supabase (free tier) de se mettre en pause.
+#  - Supabase met en pause après ~7 jours sans activité  -> on pingue la base chaque jour.
+#  - GitHub désactive un cron après 60 jours sans commit  -> on écrit un heartbeat à chaque run.
+
+on:
+  schedule:
+    - cron: '17 8 * * *'      # tous les jours ~08:17 UTC
+  workflow_dispatch:           # bouton "Run workflow" manuel
+
+permissions:
+  contents: write
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ping Supabase REST
+        run: |
+          URL="https://jftyanlcjnwolhxfdvlt.supabase.co"
+          KEY="sb_publishable_wzFy5Mw3zdMwQ5rH9tz58Q_dbHcCUMJ"   # clé publishable (publique, déjà dans l'app iOS)
+          code=$(curl -sS --retry 4 --retry-all-errors --retry-delay 10 \
+            -o /dev/null -w "%{http_code}" \
+            "$URL/rest/v1/profiles?select=id&limit=1" \
+            -H "apikey: $KEY" -H "Authorization: Bearer $KEY")
+          echo "Supabase REST -> HTTP $code"
+          if [ "$code" != "200" ]; then echo "::warning::Supabase a répondu HTTP $code"; fi
+
+      - name: Heartbeat commit
+        run: |
+          date -u +"%Y-%m-%dT%H:%M:%SZ keep-alive ping" >> keepalive.log
+          git config user.name "keepalive-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add keepalive.log
+          git commit -m "keepalive $(date -u +%F)" || exit 0
+          git push
